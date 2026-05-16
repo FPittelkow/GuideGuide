@@ -6,78 +6,217 @@
 //
 
 import SwiftUI
-import CoreData
+import UniformTypeIdentifiers
+import WebKit
 
 struct ContentView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-        animation: .default)
-    private var items: FetchedResults<Item>
+    @StateObject private var library = SiteLibrary()
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+        NavigationSplitView {
+            List(selection: $library.selectedSiteID) {
+                Section("Sites") {
+                    ForEach(library.filteredSites) { site in
+                        Label(site.displayName, systemImage: "doc.richtext")
+                            .tag(site.id)
                     }
                 }
             }
-            Text("Select an item")
+            .navigationTitle("GuideGuide")
+            .safeAreaInset(edge: .bottom) {
+                LibraryStatusView(library: library)
+            }
+        } detail: {
+            DetailView(library: library)
         }
-    }
+        .searchable(text: $library.searchText, prompt: "Search sites")
+        .toolbar {
+            ToolbarItemGroup {
+                Button {
+                    library.reload()
+                } label: {
+                    Label("Reload", systemImage: "arrow.clockwise")
+                }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+                Button {
+                    library.showFolderPicker()
+                } label: {
+                    Label("Choose Folder", systemImage: "folder")
+                }
             }
         }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
+        .fileImporter(
+            isPresented: $library.isChoosingFolder,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            library.handleFolderPicker(result)
+        }
+        .task {
+            library.bootstrap()
         }
     }
 }
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
+private struct DetailView: View {
+    @ObservedObject var library: SiteLibrary
 
-#Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+    var body: some View {
+        ZStack {
+            if let url = library.currentURL {
+                WebContentView(url: url)
+                    .id(url)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            } else {
+                EmptyHubView {
+                    library.showFolderPicker()
+                }
+            }
+        }
+        .navigationTitle(library.selectedSite?.displayName ?? "Hub")
+    }
+}
+
+private struct EmptyHubView: View {
+    let chooseFolder: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "rectangle.stack")
+                .font(.system(size: 44, weight: .regular))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text("Choose a Folder")
+                    .font(.title2.weight(.semibold))
+                Text("Select folder A or its Resources folder to build the local hub.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: chooseFolder) {
+                Label("Choose Folder", systemImage: "folder")
+            }
+            .buttonStyle(.glassProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+private struct LibraryStatusView: View {
+    @ObservedObject var library: SiteLibrary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Label(statusTitle, systemImage: statusImage)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+
+                Text(statusDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(.regularMaterial)
+    }
+
+    private var statusTitle: String {
+        if library.resourcesURL == nil {
+            "No Library"
+        } else if library.serverBaseURL == nil {
+            "Starting Server"
+        } else {
+            "\(library.sites.count) Site\(library.sites.count == 1 ? "" : "s")"
+        }
+    }
+
+    private var statusDetail: String {
+        if let errorMessage = library.errorMessage {
+            errorMessage
+        } else if let serverProbeMessage = library.serverProbeMessage {
+            serverProbeMessage
+        } else if let resourcesURL = library.resourcesURL {
+            resourcesURL.path(percentEncoded: false)
+        } else {
+            "Local HTML folders will appear here."
+        }
+    }
+
+    private var statusImage: String {
+        library.resourcesURL == nil ? "folder.badge.questionmark" : "network"
+    }
+}
+
+private struct WebContentView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        webView.setValue(false, forKey: "drawsBackground")
+        return webView
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        guard webView.url != url else { return }
+        webView.load(URLRequest(url: url))
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            showError(error, in: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            showError(error, in: webView)
+        }
+
+        private func showError(_ error: Error, in webView: WKWebView) {
+            let message = """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <style>
+                :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+                body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+                main { max-width: 640px; padding: 32px; }
+                h1 { font-size: 22px; margin: 0 0 10px; }
+                p { color: color-mix(in srgb, CanvasText 72%, transparent); line-height: 1.45; }
+                code { overflow-wrap: anywhere; }
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>The site could not load</h1>
+                <p><code>\(error.localizedDescription.htmlEscaped)</code></p>
+              </main>
+            </body>
+            </html>
+            """
+            webView.loadHTMLString(message, baseURL: nil)
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
 }

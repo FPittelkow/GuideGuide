@@ -6,16 +6,18 @@
 //
 
 import SwiftUI
-import CoreData
 
 @main
 struct GuideGuideApp: App {
-    let persistenceController = PersistenceController.shared
-
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .frame(minWidth: 980, minHeight: 640)
+        }
+        .windowStyle(.automatic)
+        .windowToolbarStyle(.unified)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
         }
     }
 }
