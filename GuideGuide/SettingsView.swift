@@ -14,23 +14,37 @@ struct SettingsView: View {
     @State private var selection: SearchPath.ID?
 
     var body: some View {
-        Form {
-            Section {
+        GlassEffectContainer {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Search Paths")
+                        .font(.title3.weight(.semibold))
+                    Text("GuideGuide scans these folders for local HTML sites.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
                     List(selection: $selection) {
                         ForEach(searchPathStore.searchPaths) { searchPath in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(searchPath.displayName)
-                                    .lineLimit(1)
-                                Text(searchPath.detail)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(searchPath.displayName)
+                                        .lineLimit(1)
+                                    Text(searchPath.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            } icon: {
+                                Image(systemName: "folder")
+                                    .symbolRenderingMode(.hierarchical)
                             }
                             .tag(searchPath.id)
                         }
                     }
                     .frame(minHeight: 180)
+                    .scrollContentBackground(.hidden)
 
                     HStack {
                         Button {
@@ -48,16 +62,22 @@ struct SettingsView: View {
 
                         Spacer()
                     }
+                    .controlSize(.regular)
                 }
-            } header: {
-                Text("Search Paths")
-            } footer: {
+                .padding(16)
+                .guideGlassSurface(cornerRadius: 22)
+
                 Text("Each folder can be folder A, a Resources folder, or any folder containing site subfolders.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+            .padding(22)
         }
-        .formStyle(.grouped)
-        .padding(20)
         .frame(width: 560, height: 360)
+        .containerBackground(.thinMaterial, for: .window)
+        .toolbarBackgroundVisibility(
+            .hidden, for: .windowToolbar
+        )
         .fileImporter(
             isPresented: $isChoosingSearchPath,
             allowedContentTypes: [.folder],

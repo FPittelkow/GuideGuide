@@ -21,11 +21,12 @@ struct ContentView: View {
             List(selection: $library.selectedSiteID) {
                 Section("Sites") {
                     ForEach(library.filteredSites) { site in
-                        Label(site.displayName, systemImage: "doc.richtext")
+                        SiteSidebarRow(site: site)
                             .tag(site.id)
                     }
                 }
             }
+            .listStyle(.sidebar)
             .navigationTitle("GuideGuide")
             .safeAreaInset(edge: .bottom) {
                 LibraryStatusView(library: library)
@@ -49,6 +50,10 @@ struct ContentView: View {
                 }
             }
         }
+        .containerBackground(.thinMaterial, for: .window)
+        .toolbarBackgroundVisibility(
+            .hidden, for: .windowToolbar
+        )
         .fileImporter(
             isPresented: $library.isChoosingFolder,
             allowedContentTypes: [.folder],
@@ -58,6 +63,26 @@ struct ContentView: View {
         }
         .task {
             library.bootstrap()
+        }
+    }
+}
+
+private struct SiteSidebarRow: View {
+    let site: SiteFolder
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(site.displayName)
+                    .lineLimit(1)
+                Text(site.routeComponent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: "doc.richtext")
+                .symbolRenderingMode(.hierarchical)
         }
     }
 }
@@ -88,6 +113,7 @@ private struct EmptyHubView: View {
         VStack(spacing: 16) {
             Image(systemName: "rectangle.stack")
                 .font(.system(size: 44, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
@@ -102,6 +128,9 @@ private struct EmptyHubView: View {
             }
             .buttonStyle(.glassProminent)
         }
+        .padding(34)
+        .guideGlassSurface(cornerRadius: 28)
+        .frame(maxWidth: 420)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
@@ -111,9 +140,7 @@ private struct LibraryStatusView: View {
     @ObservedObject var library: SiteLibrary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
-
+        GlassEffectContainer {
             VStack(alignment: .leading, spacing: 4) {
                 Label(statusTitle, systemImage: statusImage)
                     .font(.callout.weight(.medium))
@@ -124,10 +151,12 @@ private struct LibraryStatusView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .guideGlassSurface(cornerRadius: 16, shadow: false)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
         }
-        .background(.regularMaterial)
     }
 
     private var statusTitle: String {
