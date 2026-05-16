@@ -8,43 +8,22 @@
 import Foundation
 
 final class LocalSiteServer {
+    private static let preferredPort: UInt16 = 52_413
+
     private let queue = DispatchQueue(label: "GuideGuide.LocalSiteServer", qos: .userInitiated)
     private let clientQueue = DispatchQueue(label: "GuideGuide.LocalSiteServer.Clients", qos: .userInitiated, attributes: .concurrent)
     private var serverSocket: CInt = -1
-    private var resourcesURL: URL?
+    private var resourcesURLs: [URL] = []
     private var sites: [SiteFolder] = []
     private var isRunning = false
 
-    func start(resourcesURL: URL) throws -> URL {
+    func start(resourcesURLs: [URL]) throws -> URL {
         stop()
 
-        self.resourcesURL = resourcesURL
-        self.sites = SiteScanner.scan(resourcesURL: resourcesURL)
+        self.resourcesURLs = resourcesURLs
+        self.sites = SiteScanner.scan(resourcesURLs: resourcesURLs)
 
-        let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
-        guard socketDescriptor >= 0 else {
-            throw ServerError.socketCreationFailed(errno)
-        }
-
-        var reuseAddress: CInt = 1
-        setsockopt(socketDescriptor, SOL_SOCKET, SO_REUSEADDR, &reuseAddress, socklen_t(MemoryLayout<CInt>.size))
-
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(0).bigEndian
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                bind(socketDescriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-
-        guard bindResult == 0 else {
-            close(socketDescriptor)
-            throw ServerError.bindFailed(errno)
-        }
+        let socketDescriptor = try makeBoundSocket(preferredPort: Self.preferredPort)
 
         guard listen(socketDescriptor, SOMAXCONN) == 0 else {
             close(socketDescriptor)
@@ -72,6 +51,44 @@ final class LocalSiteServer {
         return URL(string: "http://127.0.0.1:\(port)/")!
     }
 
+    private func makeBoundSocket(preferredPort: UInt16) throws -> CInt {
+        if let socketDescriptor = try? makeSocket(port: preferredPort) {
+            return socketDescriptor
+        }
+
+        return try makeSocket(port: 0)
+    }
+
+    private func makeSocket(port: UInt16) throws -> CInt {
+        let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketDescriptor >= 0 else {
+            throw ServerError.socketCreationFailed(errno)
+        }
+
+        var reuseAddress: CInt = 1
+        setsockopt(socketDescriptor, SOL_SOCKET, SO_REUSEADDR, &reuseAddress, socklen_t(MemoryLayout<CInt>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                bind(socketDescriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+
+        guard bindResult == 0 else {
+            let bindError = errno
+            close(socketDescriptor)
+            throw ServerError.bindFailed(bindError)
+        }
+
+        return socketDescriptor
+    }
+
     func stop() {
         isRunning = false
         if serverSocket >= 0 {
@@ -79,7 +96,7 @@ final class LocalSiteServer {
             close(serverSocket)
             serverSocket = -1
         }
-        resourcesURL = nil
+        resourcesURLs = []
         sites = []
     }
 
@@ -136,16 +153,16 @@ final class LocalSiteServer {
     }
 
     private func response(for request: HTTPRequest?) -> HTTPResponse {
-        guard let resourcesURL else { return .notFound() }
+        guard !resourcesURLs.isEmpty else { return .notFound() }
         guard let request, request.method == "GET" || request.method == "HEAD" else {
             return .methodNotAllowed()
         }
 
         if request.path == "/" {
-            return .html(hubHTML(resourcesURL: resourcesURL), includeBody: request.method != "HEAD")
+            return .html(hubHTML(), includeBody: request.method != "HEAD")
         }
 
-        guard let fileURL = fileURL(for: request.path, resourcesURL: resourcesURL) else {
+        guard let fileURL = fileURL(for: request.path) else {
             return .notFound("""
             GuideGuide route resolver v2
             No local file matched \(request.path).
@@ -162,7 +179,7 @@ final class LocalSiteServer {
         }
     }
 
-    private func fileURL(for requestPath: String, resourcesURL: URL) -> URL? {
+    private func fileURL(for requestPath: String) -> URL? {
         let components = pathComponents(from: requestPath)
         guard let siteName = components.first else { return nil }
         let selectedSite: SiteFolder
@@ -219,14 +236,13 @@ final class LocalSiteServer {
             .filter { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
-    private func hubHTML(resourcesURL: URL) -> String {
-        let links = SiteScanner.scan(resourcesURL: resourcesURL)
-            .map { site in
-                """
-                <li><a href="/\(site.routeComponent.urlPathEncoded)/">\(site.displayName.htmlEscaped)</a></li>
-                """
-            }
-            .joined(separator: "\n")
+    private func hubHTML() -> String {
+        let links = sites.map { site in
+            """
+            <li><a href="/\(site.routeComponent.urlPathEncoded)/">\(site.displayName.htmlEscaped)</a></li>
+            """
+        }
+        .joined(separator: "\n")
 
         return """
         <!doctype html>

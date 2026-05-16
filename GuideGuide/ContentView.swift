@@ -10,7 +10,11 @@ import UniformTypeIdentifiers
 import WebKit
 
 struct ContentView: View {
-    @StateObject private var library = SiteLibrary()
+    @StateObject private var library: SiteLibrary
+
+    init(searchPathStore: SearchPathStore) {
+        _library = StateObject(wrappedValue: SiteLibrary(searchPathStore: searchPathStore))
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -217,6 +221,6 @@ private struct WebContentView: NSViewRepresentable {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        ContentView(searchPathStore: .shared)
     }
 }

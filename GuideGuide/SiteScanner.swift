@@ -8,6 +8,28 @@
 import Foundation
 
 enum SiteScanner {
+    static func scan(resourcesURLs: [URL]) -> [SiteFolder] {
+        let scannedSites = resourcesURLs.flatMap { scan(resourcesURL: $0) }
+        var routeCounts: [String: Int] = [:]
+
+        return scannedSites.map { site in
+            let normalizedRoute = site.routeComponent.normalizedRouteComponent
+            let nextCount = (routeCounts[normalizedRoute] ?? 0) + 1
+            routeCounts[normalizedRoute] = nextCount
+
+            guard nextCount > 1 else { return site }
+
+            return SiteFolder(
+                id: site.id,
+                displayName: site.displayName,
+                folderURL: site.folderURL,
+                entryFileName: site.entryFileName,
+                routeComponent: "\(site.routeComponent)-\(nextCount)"
+            )
+        }
+        .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
     static func scan(resourcesURL: URL) -> [SiteFolder] {
         let fileManager = FileManager.default
         guard let children = try? fileManager.contentsOfDirectory(
@@ -26,7 +48,8 @@ enum SiteScanner {
                 id: childURL.path(percentEncoded: false),
                 displayName: childURL.lastPathComponent.replacingOccurrences(of: "-", with: " "),
                 folderURL: childURL,
-                entryFileName: entryFileName
+                entryFileName: entryFileName,
+                routeComponent: childURL.lastPathComponent
             )
         }
         .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
@@ -68,4 +91,3 @@ private extension URL {
         (try? resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 }
-

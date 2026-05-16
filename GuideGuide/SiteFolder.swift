@@ -12,9 +12,5 @@ struct SiteFolder: Identifiable, Hashable {
     let displayName: String
     let folderURL: URL
     let entryFileName: String
-
-    var routeComponent: String {
-        folderURL.lastPathComponent
-    }
+    let routeComponent: String
 }
-

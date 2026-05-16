@@ -24,9 +24,21 @@ final class SiteLibrary: ObservableObject {
     @Published var serverProbeMessage: String?
 
     private let server = LocalSiteServer()
-    private let bookmarkStore = BookmarkStore()
-    private var directoryMonitor: DirectoryMonitor?
-    private var securityScopedURL: URL?
+    private let searchPathStore: SearchPathStore
+    private var directoryMonitors: [DirectoryMonitor] = []
+    private var cancellables: Set<AnyCancellable> = []
+
+    init(searchPathStore: SearchPathStore) {
+        self.searchPathStore = searchPathStore
+
+        searchPathStore.$searchPaths
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.openConfiguredSearchPaths()
+                }
+            }
+            .store(in: &cancellables)
+    }
 
     var selectedSite: SiteFolder? {
         filteredSites.first { $0.id == selectedSiteID } ?? sites.first { $0.id == selectedSiteID }
@@ -46,11 +58,7 @@ final class SiteLibrary: ObservableObject {
 
     func bootstrap() {
         guard resourcesURL == nil else { return }
-
-        if let savedURL = bookmarkStore.restore() {
-            openLibrary(at: savedURL)
-            return
-        }
+        openConfiguredSearchPaths()
     }
 
     func showFolderPicker() {
@@ -61,44 +69,40 @@ final class SiteLibrary: ObservableObject {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            bookmarkStore.save(url)
-            openLibrary(at: url)
+            searchPathStore.add(url)
         case .failure(let error):
             errorMessage = error.localizedDescription
         }
     }
 
     func reload() {
-        guard let resourcesURL else { return }
-        scan(resourcesURL: resourcesURL)
+        openConfiguredSearchPaths()
     }
 
-    private func openLibrary(at pickedURL: URL) {
-        securityScopedURL?.stopAccessingSecurityScopedResource()
+    private func openConfiguredSearchPaths() {
+        let resourcesURLs = searchPathStore.resourcesURLs
 
-        let hasAccess = pickedURL.startAccessingSecurityScopedResource()
-        securityScopedURL = hasAccess ? pickedURL : nil
-
-        guard let resolvedResourcesURL = ResourceRootResolver.resourcesURL(for: pickedURL) else {
-            errorMessage = "The folder does not contain a Resources folder or HTML site folders."
+        guard !resourcesURLs.isEmpty else {
+            errorMessage = searchPathStore.searchPaths.isEmpty ? nil : "No configured search path contains HTML site folders."
             resourcesURL = nil
             sites = []
             selectedSiteID = nil
             server.stop()
             serverBaseURL = nil
+            stopMonitoring()
             return
         }
 
-        resourcesURL = resolvedResourcesURL
+        resourcesURL = resourcesURLs.first
         errorMessage = nil
-        scan(resourcesURL: resolvedResourcesURL)
-        startServer(resourcesURL: resolvedResourcesURL)
-        startMonitoring(resourcesURL: resolvedResourcesURL)
+        scan(resourcesURLs: resourcesURLs)
+        startServer(resourcesURLs: resourcesURLs)
+        startMonitoring(resourcesURLs: resourcesURLs)
         probeSelectedSite()
     }
 
-    private func scan(resourcesURL: URL) {
-        let discoveredSites = SiteScanner.scan(resourcesURL: resourcesURL)
+    private func scan(resourcesURLs: [URL]) {
+        let discoveredSites = SiteScanner.scan(resourcesURLs: resourcesURLs)
         sites = discoveredSites
 
         if let selectedSiteID, discoveredSites.contains(where: { $0.id == selectedSiteID }) {
@@ -109,9 +113,9 @@ final class SiteLibrary: ObservableObject {
         probeSelectedSite()
     }
 
-    private func startServer(resourcesURL: URL) {
+    private func startServer(resourcesURLs: [URL]) {
         do {
-            serverBaseURL = try server.start(resourcesURL: resourcesURL)
+            serverBaseURL = try server.start(resourcesURLs: resourcesURLs)
             probeSelectedSite()
         } catch {
             serverBaseURL = nil
@@ -119,13 +123,27 @@ final class SiteLibrary: ObservableObject {
         }
     }
 
-    private func startMonitoring(resourcesURL: URL) {
-        directoryMonitor = DirectoryMonitor(url: resourcesURL) { [weak self] in
-            Task { @MainActor in
-                self?.reload()
+    private func startMonitoring(resourcesURLs: [URL]) {
+        stopMonitoring()
+
+        directoryMonitors = resourcesURLs.map { resourcesURL in
+            DirectoryMonitor(url: resourcesURL) { [weak self] in
+                Task { @MainActor in
+                    self?.reload()
+                }
             }
         }
-        directoryMonitor?.start()
+
+        for monitor in directoryMonitors {
+            monitor.start()
+        }
+    }
+
+    private func stopMonitoring() {
+        for monitor in directoryMonitors {
+            monitor.stop()
+        }
+        directoryMonitors = []
     }
 
     private func probeSelectedSite() {
