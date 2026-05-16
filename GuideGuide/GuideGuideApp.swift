@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct GuideGuideApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var searchPathStore = SearchPathStore.shared
 
     var body: some Scene {
@@ -27,5 +29,11 @@ struct GuideGuideApp: App {
             SettingsView()
                 .environmentObject(searchPathStore)
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 }
