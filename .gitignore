@@ -1,2 +1,43 @@
 .derivedData/
 /.codex
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# User-specific schemes
+*.xcscheme
+!*.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# CocoaPods / Carthage if used
+Pods/
+Carthage/Build/
+
+# Signing / certificates / provisioning
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p12
+*.pem
+*.key
+
+# Secrets / local config
+.env
+.env.*
+Secrets.plist
+Config.local.plist
+GoogleService-Info.plist
