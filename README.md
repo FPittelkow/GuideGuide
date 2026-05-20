@@ -40,11 +40,3 @@ GuideGuideUITests/          UI tests
 GuideGuide.xcodeproj/       Xcode project
 script/build_and_run.sh     Local build/run helper
 ```
-
-## GitHub Notes
-
-Generated build products, DerivedData, Xcode user data, local Codex config, signing certificates, provisioning profiles, and secret files are ignored by Git. Do not commit private HTML libraries or local resource folders; GuideGuide loads those from user-selected paths at runtime.
-
-## License
-
-No license has been added yet. Add one before publishing if you want others to have explicit rights to use, modify, or redistribute the project.
