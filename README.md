@@ -2,6 +2,8 @@
 
 GuideGuide is a native macOS app for browsing local HTML guide folders from one place. Pick a folder, or its `Resources` folder, and GuideGuide scans for subfolders that contain HTML entry files, serves them from a local loopback server, and opens them inside the app.
 
+![GuideGuide](docs/GuideGuide.png)
+
 ## Features
 
 - Native SwiftUI macOS interface with a searchable site sidebar.
